@@ -1,0 +1,288 @@
+syntax = "proto3";
+
+package stockearte.tienda;
+
+/**
+ * Servicio gRPC de Gestión de Tiendas Físicas.
+ *
+ * Cumple estrictamente con la regla RPC_REQUEST_RESPONSE_UNIQUE de Buf Lint:
+ * Cada método RPC posee sus propios mensajes de Request y Response exclusivos.
+ *
+ * Reglas de negocio clave:
+ * 1. Código alfanumérico unívoco: Cada tienda se identifica por un código elegido manualmente
+ *    por el usuario de Casa Central (ej: "SUC-CORDOBA-01"). No se autogenera.
+ * 2. Operación exclusiva de Casa Central: Solo los usuarios de Casa Central tienen privilegios
+ *    para dar de alta, modificar, eliminar, habilitar/inhabilitar y asignar recursos a tiendas.
+ * 3. Asignación y Desasignación: Las tiendas administran su propio stock para los productos
+ *    que tengan expresamente asignados y cuentan con personal exclusivo asignado.
+ */
+service TiendasService {
+
+  /**
+   * Da de alta una nueva tienda física en el sistema (1.a).
+   * Regla de negocio: El código ingresado debe ser alfanumérico y único a nivel global.
+   */
+  rpc CrearTienda (CrearTiendaRequest) returns (CrearTiendaResponse);
+
+  /**
+   * Obtiene la información completa de una tienda por su ID o por su código único (4.b).
+   * Devuelve los datos básicos junto a las listas de IDs de usuarios y productos asignados.
+   */
+  rpc ObtenerTienda (ObtenerTiendaRequest) returns (ObtenerTiendaResponse);
+
+  /**
+   * Modifica todos los campos de una tienda existente (código, dirección, ciudad, etc.) (4.b).
+   */
+  rpc ModificarTienda (ModificarTiendaRequest) returns (ModificarTiendaResponse);
+
+  /**
+   * Elimina o da de baja una tienda del sistema (1.a y 4).
+   * Regla de negocio: Exclusivo de usuarios de Casa Central.
+   */
+  rpc EliminarTienda (EliminarTiendaRequest) returns (EliminarTiendaResponse);
+
+  /**
+   * Cambia el estado de una tienda entre habilitada e inhabilitada (1.a).
+   * Permite suspender la operación de una sucursal sin eliminar registros históricos.
+   */
+  rpc CambiarEstadoTienda (CambiarEstadoTiendaRequest) returns (CambiarEstadoTiendaResponse);
+
+  /**
+   * Búsqueda y listado de tiendas (solo disponible para usuarios de Casa Central) (2.b y 3.c).
+   * Permite filtrar por coincidencia de código y/o por estado de habilitación.
+   */
+  rpc BuscarTiendas (BuscarTiendasRequest) returns (BuscarTiendasResponse);
+
+  /**
+   * Asigna uno o varios usuarios a la tienda (4.b).
+   */
+  rpc AsignarUsuarios (AsignarUsuariosRequest) returns (AsignarUsuariosResponse);
+
+  /**
+   * Desasigna un usuario específico de la tienda (4.b).
+   * El usuario vuelve a quedar asignado a Casa Central o sin tienda asignada.
+   */
+  rpc DesasignarUsuario (DesasignarUsuarioRequest) returns (DesasignarUsuarioResponse);
+
+  /**
+   * Asigna uno o varios productos a la tienda para habilitar su venta y stock inicial en 0 (4.b).
+   */
+  rpc AsignarProductos (AsignarProductosRequest) returns (AsignarProductosResponse);
+
+  /**
+   * Desasigna un producto específico de la tienda (4.b).
+   * Da de baja la disponibilidad del producto para esa sucursal particular.
+   */
+  rpc DesasignarProducto (DesasignarProductoRequest) returns (DesasignarProductoResponse);
+}
+
+// =============================================================================
+// MODELOS DE DATOS REUTILIZABLES (ENTIDADES / PROYECCIONES)
+// =============================================================================
+
+/**
+ * Representación completa de los datos de una tienda física.
+ */
+message TiendaModel {
+  // Identificador numérico interno (clave primaria autoincremental)
+  int64 id = 1;
+
+  // Código alfanumérico identificador elegido por el usuario (ej: "SUC-PALERMO-01")
+  string codigo = 2;
+
+  // Dirección física de la sucursal (calle y número)
+  string direccion = 3;
+
+  // Ciudad o localidad donde está radicada la sucursal
+  string ciudad = 4;
+
+  // Provincia o estado federado
+  string provincia = 5;
+
+  // Estado operativo: true = habilitada, false = inhabilitada
+  bool habilitada = 6;
+}
+
+/**
+ * Elemento resumido de tienda para resultados de búsqueda y listado.
+ * Cumple con el requerimiento 3.c: campos mínimos a mostrar (código, estado).
+ */
+message TiendaItem {
+  // Identificador numérico de la tienda
+  int64 id = 1;
+
+  // Código alfanumérico identificador
+  string codigo = 2;
+
+  // Estado de habilitación (true = habilitada, false = inhabilitada)
+  bool habilitada = 3;
+
+  // Ciudad de radicación (dato contextual para la grilla)
+  string ciudad = 4;
+
+  // Provincia de radicación (dato contextual para la grilla)
+  string provincia = 5;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: CrearTienda (1.a)
+// =============================================================================
+
+message CrearTiendaRequest {
+  string codigo = 1;
+  string direccion = 2;
+  string ciudad = 3;
+  string provincia = 4;
+  bool habilitada = 5;
+}
+
+message CrearTiendaResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  TiendaModel tienda = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: ObtenerTienda (4.b)
+// =============================================================================
+
+message ObtenerTiendaRequest {
+  // Identificador numérico interno (opcional si se consulta por código)
+  optional int64 id = 1;
+
+  // Código alfanumérico identificador (opcional si se consulta por id)
+  optional string codigo = 2;
+}
+
+message ObtenerTiendaResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  TiendaModel tienda = 3;
+  repeated int64 usuario_ids = 4;
+  repeated int64 producto_ids = 5;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: ModificarTienda (4.b)
+// =============================================================================
+
+message ModificarTiendaRequest {
+  int64 id = 1;
+  string codigo = 2;
+  string direccion = 3;
+  string ciudad = 4;
+  string provincia = 5;
+  bool habilitada = 6;
+}
+
+message ModificarTiendaResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  TiendaModel tienda = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: EliminarTienda (1.a y 4)
+// =============================================================================
+
+message EliminarTiendaRequest {
+  int64 id = 1;
+}
+
+message EliminarTiendaResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  int64 id = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: CambiarEstadoTienda (1.a)
+// =============================================================================
+
+message CambiarEstadoTiendaRequest {
+  int64 id = 1;
+  bool habilitada = 2;
+}
+
+message CambiarEstadoTiendaResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  TiendaModel tienda = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: BuscarTiendas (2.b y 3.c)
+// =============================================================================
+
+message BuscarTiendasRequest {
+  string filtro_codigo = 1;
+  optional bool filtro_habilitada = 2;
+}
+
+message BuscarTiendasResponse {
+  repeated TiendaItem tiendas = 1;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: AsignarUsuarios (4.b)
+// =============================================================================
+
+message AsignarUsuariosRequest {
+  int64 tienda_id = 1;
+  repeated int64 usuario_ids = 2;
+}
+
+message AsignarUsuariosResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  int64 tienda_id = 3;
+  repeated int64 usuario_ids = 4;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: DesasignarUsuario (4.b)
+// =============================================================================
+
+message DesasignarUsuarioRequest {
+  int64 tienda_id = 1;
+  int64 usuario_id = 2;
+}
+
+message DesasignarUsuarioResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  int64 tienda_id = 3;
+  int64 usuario_id = 4;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: AsignarProductos (4.b)
+// =============================================================================
+
+message AsignarProductosRequest {
+  int64 tienda_id = 1;
+  repeated int64 producto_ids = 2;
+}
+
+message AsignarProductosResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  int64 tienda_id = 3;
+  repeated int64 producto_ids = 4;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: DesasignarProducto (4.b)
+// =============================================================================
+
+message DesasignarProductoRequest {
+  int64 tienda_id = 1;
+  int64 producto_id = 2;
+}
+
+message DesasignarProductoResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  int64 tienda_id = 3;
+  int64 producto_id = 4;
+}

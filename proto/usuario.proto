@@ -1,0 +1,305 @@
+syntax = "proto3";
+
+package stockearte.usuario;
+
+/**
+ * Servicio gRPC de Gestión y Autenticación de Usuarios.
+ *
+ * Cumple estrictamente con la regla RPC_REQUEST_RESPONSE_UNIQUE de Buf Lint:
+ * Cada método RPC posee sus propios mensajes de Request y Response exclusivos.
+ *
+ * Reglas de negocio clave:
+ * 1. Pertenencia exclusiva: Un usuario solo puede pertenecer a una tienda física o a Casa Central.
+ * 2. Roles: Los usuarios de Casa Central tienen privilegios de administración global,
+ *    mientras que los usuarios de Tienda solo operan sobre el inventario de su sucursal.
+ * 3. Búsqueda restringida: La búsqueda y listado de usuarios está reservada a Casa Central.
+ */
+service UsuariosService {
+
+  /**
+   * Autentica las credenciales de un usuario (login).
+   * Valida nombre de usuario y contraseña (hash).
+   */
+  rpc Autenticar (AutenticarRequest) returns (AutenticarResponse);
+
+  /**
+   * Da de alta un nuevo usuario en el sistema.
+   * Regla de negocio: Solo los usuarios con rol de Casa Central pueden ejecutar esta acción.
+   */
+  rpc CrearUsuario (CrearUsuarioRequest) returns (CrearUsuarioResponse);
+
+  /**
+   * Obtiene la información detallada de un usuario por su identificador único.
+   */
+  rpc ObtenerUsuario (ObtenerUsuarioRequest) returns (ObtenerUsuarioResponse);
+
+  /**
+   * Modifica los datos de un usuario existente.
+   */
+  rpc ModificarUsuario (ModificarUsuarioRequest) returns (ModificarUsuarioResponse);
+
+  /**
+   * Elimina o da de baja lógica un usuario del sistema (4.a).
+   * Regla de negocio: Exclusivo para usuarios de Casa Central.
+   */
+  rpc EliminarUsuario (EliminarUsuarioRequest) returns (EliminarUsuarioResponse);
+
+  /**
+   * Búsqueda y listado de usuarios (filtrar por nombre de usuario y/o tienda).
+   */
+  rpc BuscarUsuarios (BuscarUsuariosRequest) returns (BuscarUsuariosResponse);
+
+  /**
+   * Obtiene la lista de usuarios que no pertenecen a ninguna tienda física (pertenecen a Casa Central o están libres).
+   * Utilizado para asignar personal a tiendas (4.b).
+   */
+  rpc ObtenerUsuariosNoAsignados (ObtenerUsuariosNoAsignadosRequest) returns (ObtenerUsuariosNoAsignadosResponse);
+
+  /**
+   * Obtiene la lista de usuarios asignados a una tienda específica.
+   * Utilizado para visualizar y gestionar el personal asignado a una sucursal (4.b).
+   */
+  rpc ObtenerUsuariosPorTienda (ObtenerUsuariosPorTiendaRequest) returns (ObtenerUsuariosPorTiendaResponse);
+}
+
+// =============================================================================
+// MODELOS DE DATOS REUTILIZABLES (ENTIDADES / PROYECCIONES)
+// =============================================================================
+
+/**
+ * Representación completa de un usuario en el sistema.
+ */
+message UsuarioModel {
+  // Identificador único y secuencial del usuario (clave primaria)
+  int64 id = 1;
+
+  // Nombre de usuario único utilizado para iniciar sesión en la plataforma
+  string nombre_usuario = 2;
+
+  // Nombre de pila del usuario
+  string nombre = 3;
+
+  // Apellido del usuario
+  string apellido = 4;
+
+  // Estado del usuario: true = habilitado para operar, false = inhabilitado
+  bool habilitado = 5;
+
+  // Identificador de la tienda asignada. Si es nulo/vacío, pertenece a Casa Central
+  optional int64 tienda_id = 6;
+
+  // Código alfanumérico visible de la tienda asignada (ej: "SUC-01") o "Casa Central"
+  optional string codigo_tienda = 7;
+
+  // Rol determinado por la pertenencia: "CASA_CENTRAL" o "TIENDA"
+  string rol = 8;
+}
+
+/**
+ * Estructura simplificada de usuario proyectada para los resultados de listados (Requerimiento 3.b).
+ */
+message UsuarioItem {
+  // Identificador único del usuario
+  int64 id = 1;
+
+  // Nombre de usuario
+  string nombre_usuario = 2;
+
+  // Código de la tienda a la que pertenece o "Casa Central"
+  optional string codigo_tienda = 3;
+
+  // Estado actual de habilitación
+  bool habilitado = 4;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: CrearUsuario (1.b)
+// =============================================================================
+
+/**
+ * Petición para dar de alta un usuario.
+ */
+message CrearUsuarioRequest {
+  // Nombre de usuario unívoco en el sistema (requerido)
+  string nombre_usuario = 1;
+
+  // Contraseña en texto plano para ser hasheada en el backend antes de persistir (requerido)
+  string contrasenia = 2;
+
+  // Nombre real de la persona (requerido)
+  string nombre = 3;
+
+  // Apellido real de la persona (requerido)
+  string apellido = 4;
+
+  // Indica si el usuario nace habilitado (por defecto true)
+  bool habilitado = 5;
+
+  // ID de la tienda a la que pertenecerá. Omitir si pertenecerá a Casa Central
+  optional int64 tienda_id = 6;
+}
+
+message CrearUsuarioResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  UsuarioModel usuario = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: Autenticar (1.a)
+// =============================================================================
+
+message AutenticarRequest {
+  // Nombre de usuario ingresado en el login
+  string nombre_usuario = 1;
+
+  // Contraseña ingresada en el login
+  string contrasenia = 2;
+}
+
+/**
+ * Respuesta del proceso de autenticación.
+ */
+message AutenticarResponse {
+  // true si las credenciales son válidas y el usuario está habilitado; false en caso contrario
+  bool exito = 1;
+
+  // Mensaje explicativo (ej: "Autenticación exitosa", "Usuario inhabilitado", "Credenciales incorrectas")
+  string mensaje = 2;
+
+  // Datos completos del usuario autenticado (incluye rol y tienda_id para armar el token de sesión)
+  UsuarioModel usuario = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: ObtenerUsuario (4.a)
+// =============================================================================
+
+message ObtenerUsuarioRequest {
+  // Identificador único del usuario a consultar
+  int64 id = 1;
+}
+
+message ObtenerUsuarioResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  UsuarioModel usuario = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: ModificarUsuario (4.a)
+// =============================================================================
+
+message ModificarUsuarioRequest {
+  // Identificador único del usuario a modificar (requerido)
+  int64 id = 1;
+
+  // Nuevo nombre de usuario
+  string nombre_usuario = 2;
+
+  // Nueva contraseña (opcional: si se omite o viaja vacía, se conserva la contraseña actual)
+  optional string contrasenia = 3;
+
+  // Nombre real actualizado
+  string nombre = 4;
+
+  // Apellido real actualizado
+  string apellido = 5;
+
+  // Nuevo estado de habilitación
+  bool habilitado = 6;
+
+  // ID de tienda actualizado. Si no se envía o se envía null, se reasigna a Casa Central
+  optional int64 tienda_id = 7;
+}
+
+message ModificarUsuarioResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  UsuarioModel usuario = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: EliminarUsuario (4.a)
+// =============================================================================
+
+/**
+ * Petición para eliminar o inhabilitar un usuario por su ID.
+ */
+message EliminarUsuarioRequest {
+  // Identificador único del usuario a eliminar
+  int64 id = 1;
+}
+
+/**
+ * Respuesta tras la eliminación del usuario.
+ */
+message EliminarUsuarioResponse {
+  // Indica si la operación fue exitosa
+  bool exito = 1;
+
+  // Mensaje informativo o de error
+  string mensaje = 2;
+
+  // Identificador del usuario eliminado
+  int64 id = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: BuscarUsuarios (2.a y 3.b)
+// =============================================================================
+
+message BuscarUsuariosRequest {
+  // Filtro por coincidencia parcial en el nombre de usuario (vacío para no filtrar por este campo)
+  string filtro_nombre_usuario = 1;
+
+  // Filtro por identificador de tienda específica (opcional, no enviar para consultar todas)
+  optional int64 filtro_tienda_id = 2;
+}
+
+/**
+ * Respuesta con la lista de usuarios encontrados.
+ */
+message BuscarUsuariosResponse {
+  // Colección de usuarios que coinciden con los filtros aplicados
+  repeated UsuarioItem usuarios = 1;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: ObtenerUsuariosNoAsignados (4.b)
+// =============================================================================
+
+/**
+ * Petición para listar usuarios no asignados a tiendas físicas.
+ */
+message ObtenerUsuariosNoAsignadosRequest {
+  // Mensaje sin parámetros específicos para cumplir con RPC_REQUEST_RESPONSE_UNIQUE
+}
+
+/**
+ * Respuesta con la lista de usuarios disponibles / no asignados.
+ */
+message ObtenerUsuariosNoAsignadosResponse {
+  // Colección de usuarios sin tienda asignada (Casa Central o libres)
+  repeated UsuarioItem usuarios = 1;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: ObtenerUsuariosPorTienda (4.b)
+// =============================================================================
+
+/**
+ * Petición para listar los usuarios asignados a una tienda específica.
+ */
+message ObtenerUsuariosPorTiendaRequest {
+  // Identificador de la tienda física
+  int64 tienda_id = 1;
+}
+
+/**
+ * Respuesta con la lista de usuarios pertenecientes a la tienda consultada.
+ */
+message ObtenerUsuariosPorTiendaResponse {
+  // Colección de usuarios asignados a la tienda
+  repeated UsuarioItem usuarios = 1;
+}

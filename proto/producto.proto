@@ -1,0 +1,327 @@
+syntax = "proto3";
+
+package stockearte.producto;
+
+/**
+ * Servicio gRPC de Gestión de Productos y Control de Stock.
+ *
+ * Cumple estrictamente con la regla RPC_REQUEST_RESPONSE_UNIQUE de Buf Lint:
+ * Cada método RPC posee sus propios mensajes de Request y Response exclusivos.
+ *
+ * Reglas de negocio clave:
+ * 1. Código único inmutable: Al dar de alta un producto, el servidor genera de forma aleatoria
+ *    un código alfanumérico único de 10 caracteres. Dicho código NO puede modificarse jamás.
+ * 2. Stock descentralizado e inicial en cero: El stock se registra por talle, color y tienda.
+ *    Al asignar un producto a una o varias tiendas en el alta, el stock se fija por defecto en 0.
+ * 3. Permisos de modificación:
+ *    - Usuario de Casa Central: Puede modificar nombre, talle, color y foto, y auditar el stock
+ *      de todas las tiendas, pero NO puede modificar el código único.
+ *    - Usuario de Tienda: Solo puede modificar el stock de los productos asignados a su propia sucursal.
+ * 4. Listados según rol:
+ *    - Casa Central: Visualiza el catálogo completo de la cadena.
+ *    - Tienda: Visualiza únicamente los productos habilitados para su sucursal.
+ */
+service ProductosService {
+
+  /**
+   * Da de alta un nuevo producto y lo asigna a una o más tiendas simultáneamente.
+   * Regla de negocio: El backend genera el código aleatorio único de 10 caracteres
+   * y crea los registros de stock con valor 0 para cada tienda listada en 'tienda_ids'.
+   */
+  rpc CrearProducto (CrearProductoRequest) returns (CrearProductoResponse);
+
+  /**
+   * Obtiene el detalle completo de un producto.
+   * Regla de negocio:
+   * - Si quien consulta es Casa Central, se devuelve la lista de stock de todas las tiendas.
+   * - Si quien consulta es un usuario de tienda ('tienda_id_solicitante'), solo se devuelve el stock de su sucursal.
+   */
+  rpc ObtenerProducto (ObtenerProductoRequest) returns (ObtenerProductoResponse);
+
+  /**
+   * Modifica los atributos descriptivos de un producto (nombre, talle, color, foto).
+   * Regla de negocio: Exclusivo de Casa Central. El código de 10 caracteres no se puede alterar.
+   */
+  rpc ModificarProducto (ModificarProductoRequest) returns (ModificarProductoResponse);
+
+  /**
+   * Actualiza la cantidad de stock de un producto en una tienda específica.
+   * Regla de negocio: Operación ejecutada principalmente por usuarios de Tienda para su sucursal (1.d y 4.c).
+   */
+  rpc ModificarStock (ModificarStockRequest) returns (ModificarStockResponse);
+
+  /**
+   * Elimina o da de baja lógica un producto del catálogo.
+   */
+  rpc EliminarProducto (EliminarProductoRequest) returns (EliminarProductoResponse);
+
+  /**
+   * Búsqueda y listado de productos con filtros combinables.
+   * Regla de negocio:
+   * - Si se envía 'tienda_id_usuario', el resultado se acota a los productos de esa tienda.
+   * - Si no se envía (Casa Central), se listan todos los productos del catálogo.
+   */
+  rpc BuscarProductos (BuscarProductosRequest) returns (BuscarProductosResponse);
+
+  /**
+   * Obtiene los productos asociados actualmente a una tienda física determinada.
+   * Utilizado para gestionar el catálogo y stock de una sucursal (4.b).
+   */
+  rpc ObtenerProductosPorTienda (ObtenerProductosPorTiendaRequest) returns (ObtenerProductosPorTiendaResponse);
+
+  /**
+   * Obtiene los productos del catálogo general que aún NO están asignados a la tienda especificada.
+   * Utilizado en la interfaz de Casa Central para seleccionar y agregar nuevos productos a una tienda (4.b).
+   */
+  rpc ObtenerProductosNoAsignados (ObtenerProductosNoAsignadosRequest) returns (ObtenerProductosNoAsignadosResponse);
+}
+
+// =============================================================================
+// MODELOS DE DATOS REUTILIZABLES (ENTIDADES / PROYECCIONES)
+// =============================================================================
+
+/**
+ * Entidad principal de Producto dentro del catálogo general.
+ */
+message ProductoModel {
+  // Identificador numérico interno (clave primaria)
+  int64 id = 1;
+
+  // Código único de 10 caracteres alfanuméricos autogenerado al azar en el alta
+  string codigo = 2;
+
+  // Nombre comercial del artículo (ej: "Remera Lisa Algodón")
+  string nombre = 3;
+
+  // Talle de la prenda (ej: "S", "M", "L", "42")
+  string talle = 4;
+
+  // Color de la prenda (ej: "Negro", "Azul", "Blanco")
+  string color = 5;
+
+  // Ruta relativa o URL pública de la fotografía del artículo
+  string foto = 6;
+
+  // Estado del producto: true = activo, false = eliminado / inhabilitado
+  bool habilitado = 7;
+}
+
+/**
+ * Registro de stock asociado a una sucursal específica.
+ */
+message StockTiendaInfo {
+  // Identificador de la tienda física
+  int64 tienda_id = 1;
+
+  // Código alfanumérico identificador de la tienda (ej: "SUC-01")
+  string codigo_tienda = 2;
+
+  // Cantidad física disponible en inventario
+  int32 stock = 3;
+}
+
+/**
+ * Estructura de producto proyectada para resultados de búsqueda y grillas (Requerimiento 3.a).
+ */
+message ProductoItem {
+  // Identificador numérico del producto
+  int64 id = 1;
+
+  // Código único de 10 caracteres
+  string codigo = 2;
+
+  // Nombre comercial
+  string nombre = 3;
+
+  // Talle
+  string talle = 4;
+
+  // Color
+  string color = 5;
+
+  // URL o ruta de la foto
+  string foto = 6;
+
+  // Código de la tienda asociada (presente si el listado es de una tienda particular)
+  optional string codigo_tienda = 7;
+
+  // Cantidad de stock disponible (en la tienda particular o acumulado según contexto)
+  int32 stock = 8;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: CrearProducto (1.c)
+// =============================================================================
+
+/**
+ * Petición para dar de alta un producto en el sistema.
+ */
+message CrearProductoRequest {
+  // Nombre comercial del producto (requerido)
+  string nombre = 1;
+
+  // Talle del producto (requerido)
+  string talle = 2;
+
+  // Color del producto (requerido)
+  string color = 3;
+
+  // Ruta o URL de la fotografía del artículo (requerido)
+  string foto = 4;
+
+  // Lista de IDs de tiendas a las que se asigna inicialmente (stock nace en 0)
+  repeated int64 tienda_ids = 5;
+}
+
+message CrearProductoResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  ProductoModel producto = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: ObtenerProducto (4.c)
+// =============================================================================
+
+message ObtenerProductoRequest {
+  // Identificador numérico del producto a consultar
+  int64 id = 1;
+
+  // ID de la tienda del usuario que consulta (opcional: acota la información de stock)
+  optional int64 tienda_id_solicitante = 2;
+}
+
+message ObtenerProductoResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  ProductoModel producto = 3;
+  repeated StockTiendaInfo stocks = 4;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: ModificarProducto (4.c)
+// =============================================================================
+
+message ModificarProductoRequest {
+  // Identificador numérico del producto a modificar
+  int64 id = 1;
+
+  // Nombre comercial actualizado
+  string nombre = 2;
+
+  // Talle actualizado
+  string talle = 3;
+
+  // Color actualizado
+  string color = 4;
+
+  // Ruta o URL de la foto actualizada
+  string foto = 5;
+}
+
+message ModificarProductoResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  ProductoModel producto = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: ModificarStock (1.d y 4.c)
+// =============================================================================
+
+message ModificarStockRequest {
+  // Identificador numérico del producto
+  int64 producto_id = 1;
+
+  // Identificador numérico de la tienda donde se ajusta el stock
+  int64 tienda_id = 2;
+
+  // Nueva cantidad en stock (debe ser mayor o igual a 0)
+  int32 nuevo_stock = 3;
+}
+
+message ModificarStockResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  int64 producto_id = 3;
+  int64 tienda_id = 4;
+  int32 stock_actualizado = 5;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: EliminarProducto (1.c y 4)
+// =============================================================================
+
+message EliminarProductoRequest {
+  int64 id = 1;
+}
+
+message EliminarProductoResponse {
+  bool exito = 1;
+  string mensaje = 2;
+  int64 id = 3;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: BuscarProductos (2.c y 3.a)
+// =============================================================================
+
+message BuscarProductosRequest {
+  // Filtro por nombre comercial (búsqueda parcial; vacío para omitir)
+  string filtro_nombre = 1;
+
+  // Filtro por coincidencia del código de 10 caracteres
+  string filtro_codigo = 2;
+
+  // Filtro por talle
+  string filtro_talle = 3;
+
+  // Filtro por color
+  string filtro_color = 4;
+
+  // ID de la tienda del usuario logueado (si es usuario de tienda, restringe los resultados a su stock)
+  optional int64 tienda_id_usuario = 5;
+}
+
+message BuscarProductosResponse {
+  // Lista de productos resultantes
+  repeated ProductoItem productos = 1;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: ObtenerProductosPorTienda (4.b)
+// =============================================================================
+
+/**
+ * Petición para listar los productos asociados a una tienda determinada.
+ */
+message ObtenerProductosPorTiendaRequest {
+  // Identificador numérico de la tienda física
+  int64 tienda_id = 1;
+}
+
+/**
+ * Respuesta con la colección de productos asignados a la tienda y su stock.
+ */
+message ObtenerProductosPorTiendaResponse {
+  repeated ProductoItem productos = 1;
+}
+
+// =============================================================================
+// MENSAJES EXCLUSIVOS: ObtenerProductosNoAsignados (4.b)
+// =============================================================================
+
+/**
+ * Petición para listar los productos que aún NO están asignados a una tienda.
+ */
+message ObtenerProductosNoAsignadosRequest {
+  // Identificador numérico de la tienda contra la cual contrastar
+  int64 tienda_id = 1;
+}
+
+/**
+ * Respuesta con los productos del catálogo disponibles para ser asignados a la tienda.
+ */
+message ObtenerProductosNoAsignadosResponse {
+  repeated ProductoItem productos = 1;
+}
