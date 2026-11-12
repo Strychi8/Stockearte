@@ -1,0 +1,2 @@
+-- Script DDL de inicialización de tablas para PostgreSQL.
+-- Define las tablas tiendas, usuarios, productos y stock junto a datos iniciales.
