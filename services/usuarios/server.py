@@ -58,6 +58,12 @@ class UsuariosServiceServicer(usuario_pb2_grpc.UsuariosServiceServicer):
         print(f"[gRPC] Autenticar -> Usuario: '{request.nombre_usuario}'")
         for u in USUARIOS_DB:
             if u["nombre_usuario"] == request.nombre_usuario and u["contrasenia"] == request.contrasenia:
+                if not u.get("habilitado", True):
+                    return usuario_pb2.AutenticarResponse(
+                        exito=False,
+                        mensaje="El usuario se encuentra inhabilitado para operar",
+                        usuario=None
+                    )
                 return usuario_pb2.AutenticarResponse(
                     exito=True,
                     mensaje="Autenticación exitosa",
@@ -65,22 +71,39 @@ class UsuariosServiceServicer(usuario_pb2_grpc.UsuariosServiceServicer):
                 )
         return usuario_pb2.AutenticarResponse(
             exito=False,
-            mensaje="Credenciales incorrectas",
+            mensaje="Nombre de usuario o contraseña incorrectos",
             usuario=None
         )
 
     def CrearUsuario(self, request, context):
         print(f"[gRPC] CrearUsuario -> Usuario: '{request.nombre_usuario}'")
+        nombre_usuario_limpio = request.nombre_usuario.strip()
+
+        if not nombre_usuario_limpio:
+            return usuario_pb2.CrearUsuarioResponse(
+                exito=False,
+                mensaje="El nombre de usuario no puede estar vacío",
+                usuario=None
+            )
+
+        # Regla de negocio: El nombre de usuario debe ser unívoco en el sistema
+        if any(u["nombre_usuario"].lower() == nombre_usuario_limpio.lower() for u in USUARIOS_DB):
+            return usuario_pb2.CrearUsuarioResponse(
+                exito=False,
+                mensaje=f"El nombre de usuario '{nombre_usuario_limpio}' ya está registrado",
+                usuario=None
+            )
+
         nuevo_id = max(u["id"] for u in USUARIOS_DB) + 1 if USUARIOS_DB else 1
         tiene_tienda = request.HasField("tienda_id") and request.tienda_id > 0
         tienda_id = request.tienda_id if tiene_tienda else None
 
         nuevo_usuario = {
             "id": nuevo_id,
-            "nombre_usuario": request.nombre_usuario,
+            "nombre_usuario": nombre_usuario_limpio,
             "contrasenia": request.contrasenia,
-            "nombre": request.nombre,
-            "apellido": request.apellido,
+            "nombre": request.nombre.strip(),
+            "apellido": request.apellido.strip(),
             "habilitado": request.habilitado,
             "tienda_id": tienda_id,
             "codigo_tienda": f"SUC-{tienda_id:02d}" if tienda_id else "Casa Central",
@@ -90,7 +113,7 @@ class UsuariosServiceServicer(usuario_pb2_grpc.UsuariosServiceServicer):
 
         return usuario_pb2.CrearUsuarioResponse(
             exito=True,
-            mensaje=f"Usuario '{request.nombre_usuario}' creado exitosamente",
+            mensaje=f"Usuario '{nombre_usuario_limpio}' creado exitosamente",
             usuario=self._dict_to_model(nuevo_usuario)
         )
 
@@ -119,14 +142,31 @@ class UsuariosServiceServicer(usuario_pb2_grpc.UsuariosServiceServicer):
                 usuario=None
             )
 
-        usuario["nombre_usuario"] = request.nombre_usuario
-        usuario["nombre"] = request.nombre
-        usuario["apellido"] = request.apellido
+        nombre_usuario_limpio = request.nombre_usuario.strip()
+        if not nombre_usuario_limpio:
+            return usuario_pb2.ModificarUsuarioResponse(
+                exito=False,
+                mensaje="El nombre de usuario no puede estar vacío",
+                usuario=None
+            )
+
+        # Regla de negocio: Validar que no pertenezca a otro usuario
+        if any(u["id"] != request.id and u["nombre_usuario"].lower() == nombre_usuario_limpio.lower() for u in USUARIOS_DB):
+            return usuario_pb2.ModificarUsuarioResponse(
+                exito=False,
+                mensaje=f"El nombre de usuario '{nombre_usuario_limpio}' ya pertenece a otro usuario",
+                usuario=None
+            )
+
+        usuario["nombre_usuario"] = nombre_usuario_limpio
+        usuario["nombre"] = request.nombre.strip()
+        usuario["apellido"] = request.apellido.strip()
         usuario["habilitado"] = request.habilitado
         if request.HasField("contrasenia") and request.contrasenia:
             usuario["contrasenia"] = request.contrasenia
         if request.HasField("tienda_id"):
             usuario["tienda_id"] = request.tienda_id if request.tienda_id > 0 else None
+            usuario["codigo_tienda"] = f"SUC-{request.tienda_id:02d}" if usuario["tienda_id"] else "Casa Central"
             usuario["rol"] = "TIENDA" if usuario["tienda_id"] else "CASA_CENTRAL"
 
         return usuario_pb2.ModificarUsuarioResponse(
