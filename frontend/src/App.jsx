@@ -1,2 +1,14 @@
-// Componente principal de la interfaz web en React con TailwindCSS.
-// Gestiona el enrutamiento de vistas según el rol de Casa Central o Tienda.
+import React from 'react';
+import { BrowserRouter } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import AppRoutes from './routes';
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}
