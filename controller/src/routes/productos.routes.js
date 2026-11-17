@@ -190,24 +190,25 @@ router.put('/:id', async (req, res) => {
 });
 
 /**
- * PUT /api/productos/:id/stock
+ * PUT o PATCH /api/productos/:id/stock
  * Modifica el stock de un producto para una tienda específica.
  */
-router.put('/:id/stock', async (req, res) => {
+const updateStockHandler = async (req, res) => {
   try {
     const producto_id = parseInt(req.params.id, 10);
     if (isNaN(producto_id)) {
       return res.status(400).json({ exito: false, mensaje: 'ID de producto inválido' });
     }
 
-    const { tienda_id, nuevo_stock } = req.body;
+    const { tienda_id, nuevo_stock, stock } = req.body;
+    const stockRaw = nuevo_stock !== undefined ? nuevo_stock : stock;
     const parsedTiendaId = parseInt(tienda_id, 10);
-    const parsedStock = parseInt(nuevo_stock, 10);
+    const parsedStock = parseInt(stockRaw, 10);
 
     if (isNaN(parsedTiendaId) || isNaN(parsedStock) || parsedStock < 0) {
       return res.status(400).json({
         exito: false,
-        mensaje: "Debe ingresar 'tienda_id' válido y 'nuevo_stock' mayor o igual a 0"
+        mensaje: "Debe ingresar 'tienda_id' válido y 'nuevo_stock' o 'stock' mayor o igual a 0"
       });
     }
 
@@ -225,7 +226,10 @@ router.put('/:id/stock', async (req, res) => {
       mensaje: `Error al conectar con el servicio de productos: ${error.message}`
     });
   }
-});
+};
+
+router.put('/:id/stock', updateStockHandler);
+router.patch('/:id/stock', updateStockHandler);
 
 /**
  * DELETE /api/productos/:id

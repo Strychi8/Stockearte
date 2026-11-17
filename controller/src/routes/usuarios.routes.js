@@ -6,7 +6,7 @@ const { usuariosClient } = require('../grpcClients');
  * GET /api/usuarios/no-asignados
  * Obtiene usuarios que no pertenecen a ninguna tienda física.
  */
-router.get('/no-asignados', async (req, res) => {
+const obtenerNoAsignadosHandler = async (req, res) => {
   try {
     const respuesta = await usuariosClient.ObtenerUsuariosNoAsignados({});
     return res.status(200).json(respuesta);
@@ -17,7 +17,10 @@ router.get('/no-asignados', async (req, res) => {
       mensaje: `Error al conectar con el servicio de usuarios: ${error.message}`
     });
   }
-});
+};
+
+router.get('/no-asignados', obtenerNoAsignadosHandler);
+router.get('/disponibles', obtenerNoAsignadosHandler);
 
 /**
  * GET /api/usuarios/tienda/:tienda_id

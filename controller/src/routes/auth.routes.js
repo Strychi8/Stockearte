@@ -6,7 +6,7 @@ const { usuariosClient } = require('../grpcClients');
  * POST /api/auth/login
  * Autentica credenciales contra el microservicio gRPC de Usuarios.
  */
-router.post('/login', async (req, res) => {
+const loginHandler = async (req, res) => {
   try {
     const { nombre_usuario, contrasenia } = req.body;
 
@@ -34,6 +34,9 @@ router.post('/login', async (req, res) => {
       mensaje: `Error al conectar con el servicio de usuarios: ${error.message}`
     });
   }
-});
+};
+
+router.post('/login', loginHandler);
+router.post('/', loginHandler);
 
 module.exports = router;

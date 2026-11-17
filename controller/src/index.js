@@ -40,7 +40,9 @@ app.get('/api/health', (req, res) => {
 
 // Registro de rutas REST
 app.use('/api/auth', authRoutes);
+app.use('/api/login', authRoutes);
 app.use('/api/usuarios', usuariosRoutes);
+app.get('/api/usuarios-disponibles', (req, res) => res.redirect('/api/usuarios/no-asignados'));
 app.use('/api/tiendas', tiendasRoutes);
 app.use('/api/productos', productosRoutes);
 

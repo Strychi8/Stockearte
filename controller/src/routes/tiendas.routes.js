@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { tiendasClient } = require('../grpcClients');
+const { tiendasClient, usuariosClient, productosClient } = require('../grpcClients');
 
 /**
  * GET /api/tiendas
@@ -183,8 +183,71 @@ router.patch('/:id/estado', async (req, res) => {
 });
 
 /**
+ * GET /api/tiendas/:id/usuarios
+ * Obtiene la lista de usuarios asignados a una tienda específica.
+ */
+router.get('/:id/usuarios', async (req, res) => {
+  try {
+    const tienda_id = parseInt(req.params.id, 10);
+    if (isNaN(tienda_id)) {
+      return res.status(400).json({ exito: false, mensaje: 'ID de tienda inválido' });
+    }
+    const respuesta = await usuariosClient.ObtenerUsuariosPorTienda({ tienda_id });
+    return res.status(200).json(respuesta);
+  } catch (error) {
+    console.error('[Controller Tiendas] Error al obtener usuarios por tienda:', error);
+    return res.status(500).json({
+      exito: false,
+      mensaje: `Error al conectar con el servicio de usuarios: ${error.message}`
+    });
+  }
+});
+
+/**
+ * GET /api/tiendas/:id/productos
+ * Obtiene la lista de productos asociados a una tienda específica.
+ */
+router.get('/:id/productos', async (req, res) => {
+  try {
+    const tienda_id = parseInt(req.params.id, 10);
+    if (isNaN(tienda_id)) {
+      return res.status(400).json({ exito: false, mensaje: 'ID de tienda inválido' });
+    }
+    const respuesta = await productosClient.ObtenerProductosPorTienda({ tienda_id });
+    return res.status(200).json(respuesta);
+  } catch (error) {
+    console.error('[Controller Tiendas] Error al obtener productos por tienda:', error);
+    return res.status(500).json({
+      exito: false,
+      mensaje: `Error al conectar con el servicio de productos: ${error.message}`
+    });
+  }
+});
+
+/**
+ * GET /api/tiendas/:id/productos-disponibles
+ * Obtiene los productos del catálogo que no están asignados a la tienda.
+ */
+router.get('/:id/productos-disponibles', async (req, res) => {
+  try {
+    const tienda_id = parseInt(req.params.id, 10);
+    if (isNaN(tienda_id)) {
+      return res.status(400).json({ exito: false, mensaje: 'ID de tienda inválido' });
+    }
+    const respuesta = await productosClient.ObtenerProductosNoAsignados({ tienda_id });
+    return res.status(200).json(respuesta);
+  } catch (error) {
+    console.error('[Controller Tiendas] Error al obtener productos no asignados:', error);
+    return res.status(500).json({
+      exito: false,
+      mensaje: `Error al conectar con el servicio de productos: ${error.message}`
+    });
+  }
+});
+
+/**
  * POST /api/tiendas/:id/usuarios
- * Asigna una lista de IDs de usuarios a la tienda.
+ * Asigna una lista de IDs de usuarios a la tienda y sincroniza en el servicio de usuarios.
  */
 router.post('/:id/usuarios', async (req, res) => {
   try {
@@ -204,6 +267,25 @@ router.post('/:id/usuarios', async (req, res) => {
       usuario_ids: parsedIds
     });
 
+    // Sincronizar en el microservicio de usuarios para actualizar tienda_id
+    for (const uid of parsedIds) {
+      try {
+        const uData = await usuariosClient.ObtenerUsuario({ id: uid });
+        if (uData.exito && uData.usuario) {
+          await usuariosClient.ModificarUsuario({
+            id: uid,
+            nombre_usuario: uData.usuario.nombre_usuario,
+            nombre: uData.usuario.nombre,
+            apellido: uData.usuario.apellido,
+            habilitado: uData.usuario.habilitado,
+            tienda_id: tienda_id
+          });
+        }
+      } catch (errSync) {
+        console.warn(`[Controller Tiendas] No se pudo sincronizar usuario ${uid}:`, errSync.message);
+      }
+    }
+
     return res.status(respuesta.exito ? 200 : 400).json(respuesta);
   } catch (error) {
     console.error('[Controller Tiendas] Error al asignar usuarios a tienda:', error);
@@ -216,7 +298,7 @@ router.post('/:id/usuarios', async (req, res) => {
 
 /**
  * DELETE /api/tiendas/:id/usuarios/:usuario_id
- * Desasigna un usuario de la tienda.
+ * Desasigna un usuario de la tienda y lo reasigna a Casa Central (tienda_id = 0).
  */
 router.delete('/:id/usuarios/:usuario_id', async (req, res) => {
   try {
@@ -228,6 +310,24 @@ router.delete('/:id/usuarios/:usuario_id', async (req, res) => {
     }
 
     const respuesta = await tiendasClient.DesasignarUsuario({ tienda_id, usuario_id });
+
+    // Sincronizar en el microservicio de usuarios (tienda_id = 0)
+    try {
+      const uData = await usuariosClient.ObtenerUsuario({ id: usuario_id });
+      if (uData.exito && uData.usuario) {
+        await usuariosClient.ModificarUsuario({
+          id: usuario_id,
+          nombre_usuario: uData.usuario.nombre_usuario,
+          nombre: uData.usuario.nombre,
+          apellido: uData.usuario.apellido,
+          habilitado: uData.usuario.habilitado,
+          tienda_id: 0
+        });
+      }
+    } catch (errSync) {
+      console.warn(`[Controller Tiendas] No se pudo sincronizar desasignación del usuario ${usuario_id}:`, errSync.message);
+    }
+
     return res.status(respuesta.exito ? 200 : 404).json(respuesta);
   } catch (error) {
     console.error('[Controller Tiendas] Error al desasignar usuario de tienda:', error);
@@ -240,7 +340,7 @@ router.delete('/:id/usuarios/:usuario_id', async (req, res) => {
 
 /**
  * POST /api/tiendas/:id/productos
- * Asigna una lista de IDs de productos a la tienda.
+ * Asigna una lista de IDs de productos a la tienda e inicializa su stock en 0.
  */
 router.post('/:id/productos', async (req, res) => {
   try {
@@ -259,6 +359,19 @@ router.post('/:id/productos', async (req, res) => {
       tienda_id,
       producto_ids: parsedIds
     });
+
+    // Sincronizar en el microservicio de productos para inicializar stock en 0
+    for (const pid of parsedIds) {
+      try {
+        await productosClient.ModificarStock({
+          producto_id: pid,
+          tienda_id,
+          nuevo_stock: 0
+        });
+      } catch (errSync) {
+        console.warn(`[Controller Tiendas] No se pudo inicializar stock para producto ${pid}:`, errSync.message);
+      }
+    }
 
     return res.status(respuesta.exito ? 200 : 400).json(respuesta);
   } catch (error) {
