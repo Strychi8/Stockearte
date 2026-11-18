@@ -13,70 +13,56 @@ if PROTO_DIR not in sys.path:
 
 import usuario_pb2
 import usuario_pb2_grpc
+from services.common.database import get_db_cursor, inicializar_bd_si_no_existe
 
-# Base de datos simulada en memoria para pruebas
-USUARIOS_DB = [
-    {
-        "id": 1,
-        "nombre_usuario": "admin",
-        "contrasenia": "admin123",
-        "nombre": "",
-        "apellido": "",
-        "habilitado": True,
-        "tienda_id": None,
-        "codigo_tienda": "Casa Central",
-        "rol": "CASA_CENTRAL"
-    },
-    {
-        "id": 2,
-        "nombre_usuario": "AnaG20",
-        "contrasenia": "123456",
-        "nombre": "Ana",
-        "apellido": "García",
-        "habilitado": True,
-        "tienda_id": 1,
-        "codigo_tienda": "SUC-PALERMO-01",
-        "rol": "TIENDA"
-    },
-    {
-        "id": 3,
-        "nombre_usuario": "Carlitos333",
-        "contrasenia": "123456",
-        "nombre": "Carlos",
-        "apellido": "López",
-        "habilitado": True,
-        "tienda_id": None,
-        "codigo_tienda": "Casa Central",
-        "rol": "CASA_CENTRAL"
-    }
-]
 
 class UsuariosServiceServicer(usuario_pb2_grpc.UsuariosServiceServicer):
-    """Implementación completa en memoria para pruebas gRPC desde Postman."""
+    """Implementación de UsuariosService con persistencia real en PostgreSQL."""
 
     def Autenticar(self, request, context):
-        print(f"[gRPC] Autenticar -> Usuario: '{request.nombre_usuario}'")
-        for u in USUARIOS_DB:
-            if u["nombre_usuario"] == request.nombre_usuario and u["contrasenia"] == request.contrasenia:
-                if not u.get("habilitado", True):
-                    return usuario_pb2.AutenticarResponse(
-                        exito=False,
-                        mensaje="El usuario se encuentra inhabilitado para operar",
-                        usuario=None
-                    )
+        print(f"[gRPC Usuarios] Autenticar -> Usuario: '{request.nombre_usuario}'")
+        try:
+            with get_db_cursor() as cur:
+                cur.execute("""
+                    SELECT u.id, u.nombre_usuario, u.contrasenia, u.nombre, u.apellido,
+                           u.habilitado, u.tienda_id, u.rol,
+                           COALESCE(t.codigo, 'Casa Central') as codigo_tienda,
+                           COALESCE(t.habilitada, TRUE) as tienda_habilitada
+                    FROM usuarios u
+                    LEFT JOIN tiendas t ON u.tienda_id = t.id
+                    WHERE u.nombre_usuario = %s AND u.contrasenia = %s
+                """, (request.nombre_usuario.strip(), request.contrasenia.strip()))
+                usuario = cur.fetchone()
+
+            if not usuario:
                 return usuario_pb2.AutenticarResponse(
-                    exito=True,
-                    mensaje="Autenticación exitosa",
-                    usuario=self._dict_to_model(u)
+                    exito=False,
+                    mensaje="Nombre de usuario o contraseña incorrectos",
+                    usuario=None
                 )
-        return usuario_pb2.AutenticarResponse(
-            exito=False,
-            mensaje="Nombre de usuario o contraseña incorrectos",
-            usuario=None
-        )
+
+            if not usuario["habilitado"]:
+                return usuario_pb2.AutenticarResponse(
+                    exito=False,
+                    mensaje="El usuario se encuentra inhabilitado para operar",
+                    usuario=None
+                )
+
+            return usuario_pb2.AutenticarResponse(
+                exito=True,
+                mensaje="Autenticación exitosa",
+                usuario=self._dict_to_model(usuario)
+            )
+        except Exception as e:
+            print(f"[gRPC Usuarios ERROR] Autenticar: {e}")
+            return usuario_pb2.AutenticarResponse(
+                exito=False,
+                mensaje=f"Error en base de datos: {str(e)}",
+                usuario=None
+            )
 
     def CrearUsuario(self, request, context):
-        print(f"[gRPC] CrearUsuario -> Usuario: '{request.nombre_usuario}'")
+        print(f"[gRPC Usuarios] CrearUsuario -> Usuario: '{request.nombre_usuario}'")
         nombre_usuario_limpio = request.nombre_usuario.strip()
 
         if not nombre_usuario_limpio:
@@ -86,63 +72,99 @@ class UsuariosServiceServicer(usuario_pb2_grpc.UsuariosServiceServicer):
                 usuario=None
             )
 
-        # Regla de negocio: El nombre de usuario debe ser unívoco en el sistema
-        if any(u["nombre_usuario"].lower() == nombre_usuario_limpio.lower() for u in USUARIOS_DB):
+        try:
+            with get_db_cursor(commit=True) as cur:
+                # Regla de negocio: El nombre de usuario debe ser unívoco
+                cur.execute("SELECT 1 FROM usuarios WHERE LOWER(nombre_usuario) = LOWER(%s)", (nombre_usuario_limpio,))
+                if cur.fetchone():
+                    return usuario_pb2.CrearUsuarioResponse(
+                        exito=False,
+                        mensaje=f"El nombre de usuario '{nombre_usuario_limpio}' ya está registrado",
+                        usuario=None
+                    )
+
+                tiene_tienda = request.HasField("tienda_id") and request.tienda_id > 0
+                tienda_id = request.tienda_id if tiene_tienda else None
+                rol = "TIENDA" if tienda_id else "CASA_CENTRAL"
+
+                cur.execute("""
+                    INSERT INTO usuarios (nombre_usuario, contrasenia, nombre, apellido, habilitado, tienda_id, rol)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id, nombre_usuario, nombre, apellido, habilitado, tienda_id, rol
+                """, (
+                    nombre_usuario_limpio,
+                    request.contrasenia.strip(),
+                    request.nombre.strip(),
+                    request.apellido.strip(),
+                    request.habilitado,
+                    tienda_id,
+                    rol
+                ))
+                nuevo = cur.fetchone()
+
+                # Obtener código y estado de tienda
+                codigo_tienda = "Casa Central"
+                tienda_habilitada = True
+                if tienda_id:
+                    cur.execute("SELECT codigo, habilitada FROM tiendas WHERE id = %s", (tienda_id,))
+                    t_row = cur.fetchone()
+                    if t_row:
+                        codigo_tienda = t_row["codigo"]
+                        tienda_habilitada = bool(t_row["habilitada"])
+                nuevo["codigo_tienda"] = codigo_tienda
+                nuevo["tienda_habilitada"] = tienda_habilitada
+
+            return usuario_pb2.CrearUsuarioResponse(
+                exito=True,
+                mensaje=f"Usuario '{nombre_usuario_limpio}' creado exitosamente",
+                usuario=self._dict_to_model(nuevo)
+            )
+        except Exception as e:
+            print(f"[gRPC Usuarios ERROR] CrearUsuario: {e}")
             return usuario_pb2.CrearUsuarioResponse(
                 exito=False,
-                mensaje=f"El nombre de usuario '{nombre_usuario_limpio}' ya está registrado",
+                mensaje=f"Error en base de datos: {str(e)}",
                 usuario=None
             )
 
-        nuevo_id = max(u["id"] for u in USUARIOS_DB) + 1 if USUARIOS_DB else 1
-        tiene_tienda = request.HasField("tienda_id") and request.tienda_id > 0
-        tienda_id = request.tienda_id if tiene_tienda else None
-
-        nuevo_usuario = {
-            "id": nuevo_id,
-            "nombre_usuario": nombre_usuario_limpio,
-            "contrasenia": request.contrasenia,
-            "nombre": request.nombre.strip(),
-            "apellido": request.apellido.strip(),
-            "habilitado": request.habilitado,
-            "tienda_id": tienda_id,
-            "codigo_tienda": f"SUC-{tienda_id:02d}" if tienda_id else "Casa Central",
-            "rol": "TIENDA" if tienda_id else "CASA_CENTRAL"
-        }
-        USUARIOS_DB.append(nuevo_usuario)
-
-        return usuario_pb2.CrearUsuarioResponse(
-            exito=True,
-            mensaje=f"Usuario '{nombre_usuario_limpio}' creado exitosamente",
-            usuario=self._dict_to_model(nuevo_usuario)
-        )
-
     def ObtenerUsuario(self, request, context):
-        print(f"[gRPC] ObtenerUsuario -> ID: {request.id}")
-        usuario = next((u for u in USUARIOS_DB if u["id"] == request.id), None)
-        if usuario:
-            return usuario_pb2.ObtenerUsuarioResponse(
-                exito=True,
-                mensaje="Usuario encontrado",
-                usuario=self._dict_to_model(usuario)
-            )
-        return usuario_pb2.ObtenerUsuarioResponse(
-            exito=False,
-            mensaje=f"Usuario con ID {request.id} no encontrado",
-            usuario=None
-        )
+        print(f"[gRPC Usuarios] ObtenerUsuario -> ID: {request.id}")
+        try:
+            with get_db_cursor() as cur:
+                cur.execute("""
+                    SELECT u.id, u.nombre_usuario, u.nombre, u.apellido, u.habilitado,
+                           u.tienda_id, u.rol,
+                           COALESCE(t.codigo, 'Casa Central') as codigo_tienda,
+                           COALESCE(t.habilitada, TRUE) as tienda_habilitada
+                    FROM usuarios u
+                    LEFT JOIN tiendas t ON u.tienda_id = t.id
+                    WHERE u.id = %s
+                """, (request.id,))
+                usuario = cur.fetchone()
 
-    def ModificarUsuario(self, request, context):
-        print(f"[gRPC] ModificarUsuario -> ID: {request.id}")
-        usuario = next((u for u in USUARIOS_DB if u["id"] == request.id), None)
-        if not usuario:
-            return usuario_pb2.ModificarUsuarioResponse(
+            if usuario:
+                return usuario_pb2.ObtenerUsuarioResponse(
+                    exito=True,
+                    mensaje="Usuario encontrado",
+                    usuario=self._dict_to_model(usuario)
+                )
+            return usuario_pb2.ObtenerUsuarioResponse(
                 exito=False,
                 mensaje=f"Usuario con ID {request.id} no encontrado",
                 usuario=None
             )
+        except Exception as e:
+            print(f"[gRPC Usuarios ERROR] ObtenerUsuario: {e}")
+            return usuario_pb2.ObtenerUsuarioResponse(
+                exito=False,
+                mensaje=f"Error en base de datos: {str(e)}",
+                usuario=None
+            )
 
+    def ModificarUsuario(self, request, context):
+        print(f"[gRPC Usuarios] ModificarUsuario -> ID: {request.id}")
         nombre_usuario_limpio = request.nombre_usuario.strip()
+
         if not nombre_usuario_limpio:
             return usuario_pb2.ModificarUsuarioResponse(
                 exito=False,
@@ -150,107 +172,231 @@ class UsuariosServiceServicer(usuario_pb2_grpc.UsuariosServiceServicer):
                 usuario=None
             )
 
-        # Regla de negocio: Validar que no pertenezca a otro usuario
-        if any(u["id"] != request.id and u["nombre_usuario"].lower() == nombre_usuario_limpio.lower() for u in USUARIOS_DB):
+        try:
+            with get_db_cursor(commit=True) as cur:
+                # Verificar existencia
+                cur.execute("SELECT id FROM usuarios WHERE id = %s", (request.id,))
+                if not cur.fetchone():
+                    return usuario_pb2.ModificarUsuarioResponse(
+                        exito=False,
+                        mensaje=f"Usuario con ID {request.id} no encontrado",
+                        usuario=None
+                    )
+
+                # Validar unicidad del nombre de usuario
+                cur.execute("""
+                    SELECT id FROM usuarios
+                    WHERE LOWER(nombre_usuario) = LOWER(%s) AND id != %s
+                """, (nombre_usuario_limpio, request.id))
+                if cur.fetchone():
+                    return usuario_pb2.ModificarUsuarioResponse(
+                        exito=False,
+                        mensaje=f"El nombre de usuario '{nombre_usuario_limpio}' ya pertenece a otro usuario",
+                        usuario=None
+                    )
+
+                tiene_tienda = request.HasField("tienda_id")
+                tienda_id = request.tienda_id if (tiene_tienda and request.tienda_id > 0) else None
+                rol = "TIENDA" if tienda_id else "CASA_CENTRAL"
+
+                # Si incluye contraseña nueva, actualizarla
+                if request.HasField("contrasenia") and request.contrasenia.strip():
+                    cur.execute("""
+                        UPDATE usuarios
+                        SET nombre_usuario = %s, contrasenia = %s, nombre = %s, apellido = %s,
+                            habilitado = %s, tienda_id = %s, rol = %s
+                        WHERE id = %s
+                    """, (
+                        nombre_usuario_limpio,
+                        request.contrasenia.strip(),
+                        request.nombre.strip(),
+                        request.apellido.strip(),
+                        request.habilitado,
+                        tienda_id,
+                        rol,
+                        request.id
+                    ))
+                else:
+                    cur.execute("""
+                        UPDATE usuarios
+                        SET nombre_usuario = %s, nombre = %s, apellido = %s,
+                            habilitado = %s, tienda_id = %s, rol = %s
+                        WHERE id = %s
+                    """, (
+                        nombre_usuario_limpio,
+                        request.nombre.strip(),
+                        request.apellido.strip(),
+                        request.habilitado,
+                        tienda_id,
+                        rol,
+                        request.id
+                    ))
+
+                # Obtener usuario actualizado con código de tienda
+                cur.execute("""
+                    SELECT u.id, u.nombre_usuario, u.nombre, u.apellido, u.habilitado,
+                           u.tienda_id, u.rol,
+                           COALESCE(t.codigo, 'Casa Central') as codigo_tienda,
+                           COALESCE(t.habilitada, TRUE) as tienda_habilitada
+                    FROM usuarios u
+                    LEFT JOIN tiendas t ON u.tienda_id = t.id
+                    WHERE u.id = %s
+                """, (request.id,))
+                actualizado = cur.fetchone()
+
+            return usuario_pb2.ModificarUsuarioResponse(
+                exito=True,
+                mensaje="Usuario modificado correctamente",
+                usuario=self._dict_to_model(actualizado)
+            )
+        except Exception as e:
+            print(f"[gRPC Usuarios ERROR] ModificarUsuario: {e}")
             return usuario_pb2.ModificarUsuarioResponse(
                 exito=False,
-                mensaje=f"El nombre de usuario '{nombre_usuario_limpio}' ya pertenece a otro usuario",
+                mensaje=f"Error en base de datos: {str(e)}",
                 usuario=None
             )
 
-        usuario["nombre_usuario"] = nombre_usuario_limpio
-        usuario["nombre"] = request.nombre.strip()
-        usuario["apellido"] = request.apellido.strip()
-        usuario["habilitado"] = request.habilitado
-        if request.HasField("contrasenia") and request.contrasenia:
-            usuario["contrasenia"] = request.contrasenia
-        if request.HasField("tienda_id"):
-            usuario["tienda_id"] = request.tienda_id if request.tienda_id > 0 else None
-            usuario["codigo_tienda"] = f"SUC-{request.tienda_id:02d}" if usuario["tienda_id"] else "Casa Central"
-            usuario["rol"] = "TIENDA" if usuario["tienda_id"] else "CASA_CENTRAL"
-
-        return usuario_pb2.ModificarUsuarioResponse(
-            exito=True,
-            mensaje="Usuario modificado correctamente",
-            usuario=self._dict_to_model(usuario)
-        )
-
     def EliminarUsuario(self, request, context):
-        print(f"[gRPC] EliminarUsuario -> ID: {request.id}")
-        global USUARIOS_DB
-        inicial = len(USUARIOS_DB)
-        USUARIOS_DB = [u for u in USUARIOS_DB if u["id"] != request.id]
-        if len(USUARIOS_DB) < inicial:
+        print(f"[gRPC Usuarios] EliminarUsuario -> ID: {request.id}")
+        try:
+            with get_db_cursor(commit=True) as cur:
+                cur.execute("DELETE FROM usuarios WHERE id = %s RETURNING id", (request.id,))
+                eliminado = cur.fetchone()
+
+            if eliminado:
+                return usuario_pb2.EliminarUsuarioResponse(
+                    exito=True,
+                    mensaje="Usuario eliminado correctamente",
+                    id=request.id
+                )
             return usuario_pb2.EliminarUsuarioResponse(
-                exito=True,
-                mensaje="Usuario eliminado correctamente",
+                exito=False,
+                mensaje="Usuario no encontrado",
                 id=request.id
             )
-        return usuario_pb2.EliminarUsuarioResponse(
-            exito=False,
-            mensaje="Usuario no encontrado",
-            id=request.id
-        )
+        except Exception as e:
+            print(f"[gRPC Usuarios ERROR] EliminarUsuario: {e}")
+            return usuario_pb2.EliminarUsuarioResponse(
+                exito=False,
+                mensaje=f"Error en base de datos: {str(e)}",
+                id=request.id
+            )
 
     def BuscarUsuarios(self, request, context):
-        print(f"[gRPC] BuscarUsuarios -> Filtro: '{request.filtro_nombre_usuario}'")
-        resultados = []
-        for u in USUARIOS_DB:
-            if request.filtro_nombre_usuario and request.filtro_nombre_usuario.lower() not in u["nombre_usuario"].lower():
-                continue
+        print(f"[gRPC Usuarios] BuscarUsuarios -> Filtro: '{request.filtro_nombre_usuario}'")
+        try:
+            query = """
+                SELECT u.id, u.nombre_usuario, u.habilitado,
+                       COALESCE(t.codigo, 'Casa Central') as codigo_tienda
+                FROM usuarios u
+                LEFT JOIN tiendas t ON u.tienda_id = t.id
+                WHERE 1=1
+            """
+            params = []
+
+            if request.filtro_nombre_usuario and request.filtro_nombre_usuario.strip():
+                query += " AND LOWER(u.nombre_usuario) LIKE %s"
+                params.append(f"%{request.filtro_nombre_usuario.strip().lower()}%")
+
             if request.HasField("filtro_tienda_id"):
                 if request.filtro_tienda_id == 0:
-                    if u["tienda_id"] is not None and u["tienda_id"] > 0:
-                        continue
-                elif u["tienda_id"] != request.filtro_tienda_id:
-                    continue
-            resultados.append(usuario_pb2.UsuarioItem(
-                id=u["id"],
-                nombre_usuario=u["nombre_usuario"],
-                codigo_tienda=u["codigo_tienda"] if u["codigo_tienda"] else "Casa Central",
-                habilitado=u["habilitado"]
-            ))
-        return usuario_pb2.BuscarUsuariosResponse(usuarios=resultados)
+                    query += " AND u.tienda_id IS NULL"
+                else:
+                    query += " AND u.tienda_id = %s"
+                    params.append(request.filtro_tienda_id)
+
+            query += " ORDER BY u.id ASC"
+
+            with get_db_cursor() as cur:
+                cur.execute(query, tuple(params))
+                rows = cur.fetchall()
+
+            resultados = [
+                usuario_pb2.UsuarioItem(
+                    id=r["id"],
+                    nombre_usuario=r["nombre_usuario"],
+                    codigo_tienda=r["codigo_tienda"],
+                    habilitado=r["habilitado"]
+                )
+                for r in rows
+            ]
+            return usuario_pb2.BuscarUsuariosResponse(usuarios=resultados)
+        except Exception as e:
+            print(f"[gRPC Usuarios ERROR] BuscarUsuarios: {e}")
+            return usuario_pb2.BuscarUsuariosResponse(usuarios=[])
 
     def ObtenerUsuariosNoAsignados(self, request, context):
-        print("[gRPC] ObtenerUsuariosNoAsignados")
-        libres = [
-            usuario_pb2.UsuarioItem(
-                id=u["id"],
-                nombre_usuario=u["nombre_usuario"],
-                codigo_tienda="Casa Central",
-                habilitado=u["habilitado"]
-            )
-            for u in USUARIOS_DB if u["tienda_id"] is None
-        ]
-        return usuario_pb2.ObtenerUsuariosNoAsignadosResponse(usuarios=libres)
+        print("[gRPC Usuarios] ObtenerUsuariosNoAsignados")
+        try:
+            with get_db_cursor() as cur:
+                cur.execute("""
+                    SELECT id, nombre_usuario, habilitado, 'Casa Central' as codigo_tienda
+                    FROM usuarios
+                    WHERE tienda_id IS NULL
+                    ORDER BY nombre_usuario ASC
+                """)
+                rows = cur.fetchall()
+
+            libres = [
+                usuario_pb2.UsuarioItem(
+                    id=r["id"],
+                    nombre_usuario=r["nombre_usuario"],
+                    codigo_tienda="Casa Central",
+                    habilitado=r["habilitado"]
+                )
+                for r in rows
+            ]
+            return usuario_pb2.ObtenerUsuariosNoAsignadosResponse(usuarios=libres)
+        except Exception as e:
+            print(f"[gRPC Usuarios ERROR] ObtenerUsuariosNoAsignados: {e}")
+            return usuario_pb2.ObtenerUsuariosNoAsignadosResponse(usuarios=[])
 
     def ObtenerUsuariosPorTienda(self, request, context):
-        print(f"[gRPC] ObtenerUsuariosPorTienda -> Tienda ID: {request.tienda_id}")
-        asignados = [
-            usuario_pb2.UsuarioItem(
-                id=u["id"],
-                nombre_usuario=u["nombre_usuario"],
-                codigo_tienda=u["codigo_tienda"],
-                habilitado=u["habilitado"]
-            )
-            for u in USUARIOS_DB if u["tienda_id"] == request.tienda_id
-        ]
-        return usuario_pb2.ObtenerUsuariosPorTiendaResponse(usuarios=asignados)
+        print(f"[gRPC Usuarios] ObtenerUsuariosPorTienda -> Tienda ID: {request.tienda_id}")
+        try:
+            with get_db_cursor() as cur:
+                cur.execute("""
+                    SELECT u.id, u.nombre_usuario, u.habilitado, t.codigo as codigo_tienda
+                    FROM usuarios u
+                    JOIN tiendas t ON u.tienda_id = t.id
+                    WHERE u.tienda_id = %s
+                    ORDER BY u.nombre_usuario ASC
+                """, (request.tienda_id,))
+                rows = cur.fetchall()
+
+            asignados = [
+                usuario_pb2.UsuarioItem(
+                    id=r["id"],
+                    nombre_usuario=r["nombre_usuario"],
+                    codigo_tienda=r["codigo_tienda"],
+                    habilitado=r["habilitado"]
+                )
+                for r in rows
+            ]
+            return usuario_pb2.ObtenerUsuariosPorTiendaResponse(usuarios=asignados)
+        except Exception as e:
+            print(f"[gRPC Usuarios ERROR] ObtenerUsuariosPorTienda: {e}")
+            return usuario_pb2.ObtenerUsuariosPorTiendaResponse(usuarios=[])
 
     def _dict_to_model(self, u):
-        return usuario_pb2.UsuarioModel(
-            id=u["id"],
-            nombre_usuario=u["nombre_usuario"],
-            nombre=u["nombre"],
-            apellido=u["apellido"],
-            habilitado=u["habilitado"],
-            tienda_id=u["tienda_id"],
-            codigo_tienda=u["codigo_tienda"],
-            rol=u["rol"]
-        )
+        kwargs = {
+            "id": u["id"],
+            "nombre_usuario": u["nombre_usuario"],
+            "nombre": u.get("nombre") or "",
+            "apellido": u.get("apellido") or "",
+            "habilitado": bool(u["habilitado"]),
+            "tienda_id": u["tienda_id"] if u["tienda_id"] is not None else 0,
+            "codigo_tienda": u.get("codigo_tienda") or "Casa Central",
+            "rol": u.get("rol") or ("TIENDA" if u.get("tienda_id") else "CASA_CENTRAL")
+        }
+        if "tienda_habilitada" in u and u["tienda_habilitada"] is not None:
+            kwargs["tienda_habilitada"] = bool(u["tienda_habilitada"])
+        return usuario_pb2.UsuarioModel(**kwargs)
+
 
 def serve():
+    inicializar_bd_si_no_existe()
     port = "50051"
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     usuario_pb2_grpc.add_UsuariosServiceServicer_to_server(UsuariosServiceServicer(), server)
@@ -259,6 +405,7 @@ def serve():
     print(f"[INFO] Servidor gRPC de Usuarios corriendo en http://localhost:{port}")
     print("[INFO] Presiona Ctrl+C para detenerlo.\n")
     server.wait_for_termination()
+
 
 if __name__ == "__main__":
     serve()

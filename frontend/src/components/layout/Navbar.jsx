@@ -34,8 +34,19 @@ export default function Navbar() {
               <span className="text-lg font-bold bg-gradient-to-r from-white via-slate-100 to-brand-300 bg-clip-text text-transparent">
                 Stockearte
               </span>
-              <span className="block text-[10px] uppercase tracking-wider text-slate-400 font-medium">
-                {isCasaCentral ? 'Casa Central — Admin' : `Tienda: ${user?.codigo_tienda || 'Sucursal'}`}
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-medium flex items-center gap-1.5">
+                {isCasaCentral ? (
+                  'Casa Central — Admin'
+                ) : (
+                  <>
+                    <span>Tienda: {user?.codigo_tienda || 'Sucursal'}</span>
+                    {user?.tienda_habilitada === false && (
+                      <span className="px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-400 text-[9px] font-bold normal-case">
+                        Inhabilitada
+                      </span>
+                    )}
+                  </>
+                )}
               </span>
             </div>
           </NavLink>

@@ -93,6 +93,9 @@ message UsuarioModel {
 
   // Rol determinado por la pertenencia: "CASA_CENTRAL" o "TIENDA"
   string rol = 8;
+
+  // Estado de la tienda física asignada (true = habilitada/abierta, false = inhabilitada)
+  optional bool tienda_habilitada = 9;
 }
 
 /**
