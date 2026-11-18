@@ -298,7 +298,7 @@ export default function ProductosView() {
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => setModalModificar(p)}
-                      title="Editar atributos"
+                      title="Editar producto"
                       className="p-1 rounded text-slate-400 hover:text-slate-200 transition"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
@@ -340,6 +340,13 @@ export default function ProductosView() {
             mostrarMensaje('Stock actualizado correctamente');
             abrirDetalle({ id: prodId });
             cargarProductos();
+          }}
+          onEdit={(producto) => {
+            setModalDetalle(null);
+            setModalModificar(producto);
+          }}
+          onDelete={(prodId) => {
+            handleEliminar(prodId);
           }}
         />
       )}

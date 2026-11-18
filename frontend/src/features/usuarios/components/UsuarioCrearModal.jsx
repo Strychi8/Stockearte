@@ -141,7 +141,7 @@ export default function UsuarioCrearModal({ isOpen, onClose, onSuccess, tiendas 
               onChange={(e) => setForm({ ...form, tienda_id: e.target.value })}
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:ring-2 focus:ring-brand-500"
             >
-              <option value="">Casa Central (Sin tienda física asignada)</option>
+              <option value="">Casa Central (Sin asignar)</option>
               {tiendas.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.codigo} - {t.ciudad}

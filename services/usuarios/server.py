@@ -46,7 +46,7 @@ USUARIOS_DB = [
         "apellido": "López",
         "habilitado": True,
         "tienda_id": None,
-        "codigo_tienda": None,
+        "codigo_tienda": "Casa Central",
         "rol": "CASA_CENTRAL"
     }
 ]
@@ -198,12 +198,16 @@ class UsuariosServiceServicer(usuario_pb2_grpc.UsuariosServiceServicer):
         for u in USUARIOS_DB:
             if request.filtro_nombre_usuario and request.filtro_nombre_usuario.lower() not in u["nombre_usuario"].lower():
                 continue
-            if request.HasField("filtro_tienda_id") and u["tienda_id"] != request.filtro_tienda_id:
-                continue
+            if request.HasField("filtro_tienda_id"):
+                if request.filtro_tienda_id == 0:
+                    if u["tienda_id"] is not None and u["tienda_id"] > 0:
+                        continue
+                elif u["tienda_id"] != request.filtro_tienda_id:
+                    continue
             resultados.append(usuario_pb2.UsuarioItem(
                 id=u["id"],
                 nombre_usuario=u["nombre_usuario"],
-                codigo_tienda=u["codigo_tienda"] if u["codigo_tienda"] else "Sin asignar",
+                codigo_tienda=u["codigo_tienda"] if u["codigo_tienda"] else "Casa Central",
                 habilitado=u["habilitado"]
             ))
         return usuario_pb2.BuscarUsuariosResponse(usuarios=resultados)

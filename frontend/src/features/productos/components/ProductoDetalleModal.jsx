@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { productosService } from '../services/productos.service';
-import { Store, X, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Store, X, AlertCircle, CheckCircle2, Edit3, Trash2 } from 'lucide-react';
 
 // Modal de detalle del producto con visualización de atributos, código inmutable y foto.
 // Permite modificar el stock local a operadores de tienda o auditar el desglose de sucursales a Casa Central.
+// Casa Central cuenta además con opciones directas para modificar atributos y dar de baja el artículo.
 
 export default function ProductoDetalleModal({
   detalle,
@@ -11,7 +12,9 @@ export default function ProductoDetalleModal({
   isTienda,
   isCasaCentral,
   userTiendaId,
-  onStockUpdated
+  onStockUpdated,
+  onEdit,
+  onDelete
 }) {
   const [stockInput, setStockInput] = useState('');
   const [error, setError] = useState(null);
@@ -187,14 +190,46 @@ export default function ProductoDetalleModal({
           )}
         </div>
 
-        <div className="pt-4 border-t border-slate-800 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-xl transition"
-          >
-            Cerrar
-          </button>
+        <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+          {isCasaCentral ? (
+            <>
+              <button
+                type="button"
+                onClick={() => onDelete && onDelete(producto.id)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 text-xs font-semibold rounded-xl transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Eliminar Producto</span>
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-xl transition"
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onEdit && onEdit(producto)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-brand-600/30 transition"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>Editar</span>
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="w-full flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-xl transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

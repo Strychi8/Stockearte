@@ -138,6 +138,7 @@ export default function UsuariosView() {
             className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500"
           >
             <option value="">Todas las Tiendas / Casa Central</option>
+            <option value="0">Casa Central (Sin asignar)</option>
             {tiendas.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.codigo} ({t.ciudad})
@@ -209,7 +210,7 @@ export default function UsuariosView() {
                     </td>
 
                     <td className="px-5 py-4">
-                      {u.codigo_tienda === 'Casa Central' || !u.codigo_tienda ? (
+                      {u.codigo_tienda === 'Casa Central' || u.codigo_tienda === 'Sin asignar' || !u.codigo_tienda ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium bg-brand-500/10 text-brand-300 border border-brand-500/20">
                           <Building2 className="w-3 h-3" />
                           <span>Casa Central</span>
