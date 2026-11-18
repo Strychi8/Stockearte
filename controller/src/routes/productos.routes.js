@@ -93,9 +93,9 @@ router.get('/:id', async (req, res) => {
     }
 
     const requestPayload = { id };
-    const { tienda_id_solicitante } = req.query;
-    if (tienda_id_solicitante !== undefined && tienda_id_solicitante !== '') {
-      const parsedTid = parseInt(tienda_id_solicitante, 10);
+    const tidParam = req.query.tienda_id_solicitante || req.query.tienda_id;
+    if (tidParam !== undefined && tidParam !== '') {
+      const parsedTid = parseInt(tidParam, 10);
       if (!isNaN(parsedTid) && parsedTid > 0) {
         requestPayload.tienda_id_solicitante = parsedTid;
       }

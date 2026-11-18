@@ -80,7 +80,7 @@ export default function TiendaDetalleModal({ tienda, onClose, onSuccess, onDelet
     try {
       const res = await tiendasService.desasignarUsuarioTienda(form.id, uid);
       if (res.exito) {
-        onSuccess('Usuario desasignado');
+        onSuccess('Usuario desasignado de la tienda');
         cargarAsignaciones(form.id);
       }
     } catch (err) {

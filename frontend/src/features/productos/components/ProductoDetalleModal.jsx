@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { productosService } from '../services/productos.service';
 import { Store, X, AlertCircle, CheckCircle2, Edit3, Trash2 } from 'lucide-react';
 
@@ -24,20 +24,41 @@ export default function ProductoDetalleModal({
   const producto = detalle?.producto;
   const stocks = detalle?.stocks || [];
 
+  const prevProdIdRef = useRef(producto?.id);
+  const timerMensajeRef = useRef(null);
+
+  const mostrarMensajeLocal = (msg) => {
+    if (timerMensajeRef.current) clearTimeout(timerMensajeRef.current);
+    setMensajeLocal(msg);
+    timerMensajeRef.current = setTimeout(() => {
+      setMensajeLocal(null);
+    }, 4000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (timerMensajeRef.current) clearTimeout(timerMensajeRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     if (isTienda && stocks.length > 0) {
-      setStockInput(String(stocks[0].stock ?? 0));
+      const stockDeMiTienda = stocks.find((s) => Number(s.tienda_id) === Number(userTiendaId));
+      const stockVal = stockDeMiTienda ? stockDeMiTienda.stock : (isTienda ? 0 : (stocks[0]?.stock ?? 0));
+      setStockInput(String(stockVal ?? 0));
     }
-    setError(null);
-    setMensajeLocal(null);
-  }, [detalle, isTienda]);
+    if (prevProdIdRef.current !== producto?.id) {
+      prevProdIdRef.current = producto?.id;
+      setError(null);
+      setMensajeLocal(null);
+    }
+  }, [detalle, isTienda, userTiendaId, producto?.id]);
 
   if (!producto) return null;
 
   const handleActualizarStock = async (e) => {
     e.preventDefault();
     setError(null);
-    setMensajeLocal(null);
 
     const stockNum = parseInt(stockInput, 10);
     if (isNaN(stockNum) || stockNum < 0) {
@@ -49,7 +70,8 @@ export default function ProductoDetalleModal({
     try {
       const res = await productosService.updateStock(producto.id, userTiendaId, stockNum);
       if (res.exito) {
-        setMensajeLocal(res.mensaje);
+        mostrarMensajeLocal(res.mensaje || 'Stock actualizado correctamente');
+        setStockInput(String(stockNum));
         if (onStockUpdated) {
           onStockUpdated(producto.id);
         }

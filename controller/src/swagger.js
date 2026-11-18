@@ -305,7 +305,7 @@ const swaggerDocument = {
           { name: 'usuario_id', in: 'path', required: true, schema: { type: 'integer' } }
         ],
         responses: {
-          200: { description: 'Usuario desasignado' }
+          200: { description: 'Usuario desasignado de la tienda' }
         }
       }
     },

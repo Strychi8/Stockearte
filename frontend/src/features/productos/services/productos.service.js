@@ -16,7 +16,7 @@ export const productosService = {
   },
 
   async getProducto(id, tiendaId = null) {
-    const qStr = tiendaId ? `?tienda_id=${tiendaId}` : '';
+    const qStr = tiendaId ? `?tienda_id_solicitante=${tiendaId}&tienda_id=${tiendaId}` : '';
     return request(`/productos/${id}${qStr}`);
   },
 
