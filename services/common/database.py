@@ -5,6 +5,25 @@ import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 
+# Cargar variables de entorno desde el archivo .env de la raíz si existe
+def _cargar_env_local():
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+    env_file = os.path.join(base_dir, ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        val = v.strip().strip("'\"")
+                        if val:
+                            os.environ.setdefault(k.strip(), val)
+        except Exception as e:
+            print(f"[Database Warning] No se pudo parsear {env_file}: {e}")
+
+_cargar_env_local()
+
 # Configuración de conexión por variables de entorno con valores por defecto
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = int(os.getenv("DB_PORT", "5432"))

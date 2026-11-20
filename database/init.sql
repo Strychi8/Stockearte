@@ -92,21 +92,21 @@ SELECT setval('tiendas_id_seq', (SELECT MAX(id) FROM tiendas));
 -- 2. Insertar 5 Usuarios
 INSERT INTO usuarios (id, nombre_usuario, contrasenia, nombre, apellido, habilitado, tienda_id, rol) VALUES
 (1, 'admin', 'admin123', 'Administrador', 'Central', TRUE, NULL, 'CASA_CENTRAL'),
-(2, 'AnaG20', '123456', 'Ana', 'García', TRUE, 1, 'TIENDA'),
-(3, 'CarlosL', '123456', 'Carlos', 'López', TRUE, 2, 'TIENDA'),
-(4, 'LuciaM', '123456', 'Lucía', 'Martínez', TRUE, 3, 'TIENDA'),
-(5, 'Enzo30', '123456', 'Enzo', 'Benítez', TRUE, NULL, 'CASA_CENTRAL');
+(2, 'AnaG20', '123456', 'Ana', 'Garcia', TRUE, 1, 'TIENDA'),
+(3, 'CarlosL', '123456', 'Carlos', 'Lopez', TRUE, 2, 'TIENDA'),
+(4, 'LuciaM', '123456', 'Lucia', 'Martinez', TRUE, 3, 'TIENDA'),
+(5, 'AndresG', '123456', 'Andres', 'Gonzalez', TRUE, NULL, 'CASA_CENTRAL');
 
 -- Sincronizar secuencia autoincremental de usuarios
 SELECT setval('usuarios_id_seq', (SELECT MAX(id) FROM usuarios));
 
 -- 3. Insertar 5 Productos (códigos alfanuméricos inmutables de 10 caracteres)
 INSERT INTO productos (id, codigo, nombre, talle, color, foto, habilitado) VALUES
-(1, 'PRD8492041', 'Remera Lisa de Algodón', 'M', 'Negro', 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500', TRUE),
-(2, 'PRD7742019', 'Pantalón Denim Clásico', '42', 'Azul', 'https://images.unsplash.com/photo-1542272604-787c3835535d?w=500', TRUE),
-(3, 'PRD3910544', 'Buzo Hoodie Frisa', 'L', 'Gris', 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=500', TRUE),
-(4, 'PRD5521890', 'Campera Bomber Urbana', 'XL', 'Verde Militar', 'https://images.unsplash.com/photo-1548883354-7622d03aca27?w=500', TRUE),
-(5, 'PRD6183025', 'Chomba Piqué Básica', 'S', 'Blanco', 'https://images.unsplash.com/photo-1581655353564-df123a1eb820?w=500', TRUE);
+(1, 'PRD8492041', 'Remera Basica de Algodón', 'M', 'Negro', 'https://plus.unsplash.com/premium_photo-1688497831040-753ea826d174?w=500&auto=format&fit=crop&q=80', TRUE),
+(2, 'PRD7742019', 'Pantalón Cargo', '42', 'Verde Militar', 'https://norulessports.com/cdn/shop/files/Cargo-verde-6.png?v=1739842378', TRUE),
+(3, 'PRD3910544', 'Buzo Canguro con Capucha', 'L', 'Gris Melange', 'https://pinmania.com.ar/wp-content/uploads/2021/04/Buzo-Infantil-Canguro-Friza-Sublimable-Gris-Melange-Talle-10.jpg', TRUE),
+(4, 'PRD5521890', 'Campera de Abrigo', 'XL', 'Negro', 'https://rusty.com.ar/cdn/shop/files/camperaarrowgrande_4.jpg?v=1770652741', TRUE),
+(5, 'PRD6183025', 'Jean Slim Fit', '42', 'Azul Oscuro', 'https://dreamerjeans.co/cdn/shop/files/4_cfa9ee74-c391-431d-93f4-a2431d8de178.png?v=1769638621&width=1000', TRUE);
 
 -- Sincronizar secuencia autoincremental de productos
 SELECT setval('productos_id_seq', (SELECT MAX(id) FROM productos));
