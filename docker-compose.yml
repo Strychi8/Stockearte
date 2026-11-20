@@ -1,0 +1,149 @@
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Base de Datos Centralizada PostgreSQL (Aislada en red privada)
+  # ---------------------------------------------------------------------------
+  database:
+    image: postgres:14-alpine
+    container_name: stockearte-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: "${DB_NAME:?Error: Debe definir DB_NAME en el archivo .env}"
+      POSTGRES_USER: "${DB_USER:?Error: Debe definir DB_USER en el archivo .env}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:?Error: Debe definir DB_PASSWORD en el archivo .env}"
+    # Solo accesible para los microservicios dentro de la red interna de Docker
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - stockearte-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # 2. Microservicio gRPC de Usuarios (Puerto gRPC 50051 interno)
+  # ---------------------------------------------------------------------------
+  service-usuarios:
+    build:
+      context: .
+      dockerfile: services/usuarios/Dockerfile
+    container_name: stockearte-grpc-usuarios
+    restart: always
+    environment:
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+    expose:
+      - "50051"
+    networks:
+      - stockearte-net
+    depends_on:
+      database:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # 3. Microservicio gRPC de Productos (Puerto gRPC 50052 interno)
+  # ---------------------------------------------------------------------------
+  service-productos:
+    build:
+      context: .
+      dockerfile: services/productos/Dockerfile
+    container_name: stockearte-grpc-productos
+    restart: always
+    environment:
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+    expose:
+      - "50052"
+    networks:
+      - stockearte-net
+    depends_on:
+      database:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # 4. Microservicio gRPC de Tiendas (Puerto gRPC 50053 interno)
+  # ---------------------------------------------------------------------------
+  service-tiendas:
+    build:
+      context: .
+      dockerfile: services/tiendas/Dockerfile
+    container_name: stockearte-grpc-tiendas
+    restart: always
+    environment:
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+    expose:
+      - "50053"
+    networks:
+      - stockearte-net
+    depends_on:
+      database:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # 5. Controlador REST / API Gateway (Único backend con puerto público HTTP)
+  # ---------------------------------------------------------------------------
+  controller:
+    build:
+      context: .
+      dockerfile: controller/Dockerfile
+    container_name: stockearte-controller
+    restart: always
+    environment:
+      PORT: ${PORT:-3000}
+      USUARIOS_URL: service-usuarios:50051
+      PRODUCTOS_URL: service-productos:50052
+      TIENDAS_URL: service-tiendas:50053
+    ports:
+      - "${PORT:-3000}:3000"
+    networks:
+      - stockearte-net
+    depends_on:
+      - service-usuarios
+      - service-productos
+      - service-tiendas
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # 6. Frontend Web SPA (Servidor Nginx público en Puerto 5173 / 80)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: stockearte-frontend
+    restart: always
+    ports:
+      - "5173:80"
+    networks:
+      - stockearte-net
+    depends_on:
+      - controller
+
+volumes:
+  postgres_data:
+
+# -----------------------------------------------------------------------------
+# Red Privada Virtual Compartida (Bridge)
+# -----------------------------------------------------------------------------
+networks:
+  stockearte-net:
+    driver: bridge
